@@ -40,21 +40,19 @@ class LogQueryReplayer
   end
 
   def handle_query(line_number, query)
-    parse_select_statements_from_pg_log(@options.log_file) do |line_number, query|
-      begin
-        exec_info = execute_query_with_plan(query)
-        fingerprint = PgQuery.fingerprint(query)
+    begin
+      exec_info = execute_query_with_plan(query)
+      fingerprint = PgQuery.fingerprint(query)
 
-        query_stats = update_stats(query, fingerprint, exec_info)
-        csv_values = extract_csv_values(fingerprint, exec_info)
+      query_stats = update_stats(query, fingerprint, exec_info)
+      csv_values = build_csv_values(query_stats, exec_info)
 
-        puts "#{Time.now - @start_time},#{@execution_number += 1},#{line_number},#{fingerprint},#{@all_stats[fingerprint][:count]}," + csv_values.join(',')
-        true
+      puts "#{Time.now - @start_time},#{@execution_number += 1},#{line_number},#{fingerprint},#{@all_stats[fingerprint][:count]}," + csv_values.join(',')
+      true
 
-      rescue StandardError => e
-        raise unless e.message !=~ /ERROR:  missing FROM-clause entry/
-        false
-      end
+    rescue StandardError => e
+      raise unless e.message !=~ /ERROR:  missing FROM-clause entry/
+      false
     end
   end
 
@@ -68,8 +66,7 @@ class LogQueryReplayer
     query_stats
   end
 
-  def extract_csv_values(fingerprint, exec_info)
-    query_stats = @all_stats[fingerprint]
+  def build_csv_values(query_stats, exec_info)
     csv_values = []
     EXPLAIN_PLAN_FIELDS_TO_EXTRACT.each do |_label, symbol|
       csv_values << exec_info[symbol]
@@ -146,7 +143,7 @@ class LogQueryReplayer
     valid = yield(line_number, query)
     return if valid
 
-    # Handle multi line queries
+    # Multi line query in progress
     multi_line_query.sql = query
     multi_line_query.line_number = line_number
   end
@@ -157,7 +154,6 @@ class LogQueryReplayer
 
   def connection
     @connection ||= begin
-      # puts "Connecting to #{@options.pg_user}@#{@options.pg_host}:#{@options.bg_port}/#{@options.pg_database} ..."
       PG.connect(
         host: @options.pg_host,
         port: @options.pg_port,
