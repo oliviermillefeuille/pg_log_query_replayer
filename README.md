@@ -30,6 +30,9 @@ The results of will be printed on STDOUT. The output will consist of three secti
 
 All sections of the output data will be in CSV format for easy capture, and each section will begin with a header. The first section will contain information about the replayed queries and their statistics. The second section will display the top 100 queries sorted by their total cost, with the queries with the highest total cost on top. The third section will show the top 100 queries sorted by their count, with the queries that occur most frequently on top.
 
+In this version, these 4 fields from the query plan are being captured:
+```Actual Total Time, Total Cost, Shared Hit Blocks, Shared Read Blocks```
+
 See an example below:
 ```
 # REPLAYING LOG FILE 
