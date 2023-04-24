@@ -20,6 +20,6 @@ Mandatory parameters
 Options
 ```text
     --pgpassword <PGPASSWORD>
-    --skiplines Nb. of lines to skip from the beginning of the file
-    --maxlines Maximum line number before the replay stops
+    --skiplines Number of lines to skip from the beginning of the file
+    --maxlines Maximum line number at which the replay stops
 ```
