@@ -4,8 +4,6 @@ require 'ostruct'
 require 'pg'
 require 'pg_query'
 
-# ruby log_query_replayer.rb -l log.csv --pghost $PGHOST --pgdatabase $PGDATABASE --pguser $PGUSER --pgpassword $PGPASSWORD --pgport $PGPORT
-
 class LogQueryReplayer
   EXPLAIN_PLAN_FIELDS_TO_EXTRACT = {
     "Actual Total Time" => :total_time,
