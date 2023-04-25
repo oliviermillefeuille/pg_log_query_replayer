@@ -31,7 +31,8 @@ class JsonQueryReplayer
 
   def replay_queries
     puts "# REPLAYING JSON FILE #{(@options.skip_lines ? "(skipping #{@options.skip_lines} lines)" : '')}"
-    puts 'elapsed_in_secs,execution_number,line_number,fingerprint,count,cost,avg_cost,time,avg_time,shared_hit_blocks,avg_shared_hit_blocks,shared_read_blocks,avg_shared_read_blocks'
+    puts 'elapsed_in_secs,execution_number,line_number,fingerprint,count,' +
+         'cost,avg_cost,time,avg_time,shared_hit_blocks,avg_shared_hit_blocks,shared_read_blocks,avg_shared_read_blocks'
 
     parse_select_statements_from_pg_log(@options.log_file) do |line_number, query|
       handle_query(line_number, query)
@@ -39,6 +40,8 @@ class JsonQueryReplayer
   end
 
   def handle_query(line_number, query)
+    return unless select_query?(query)
+
     begin
       exec_info = execute_query_with_plan(query)
       fingerprint = PgQuery.fingerprint(query)
@@ -46,12 +49,11 @@ class JsonQueryReplayer
       query_stats = update_stats(query, fingerprint, exec_info)
       csv_values = build_csv_values(query_stats, exec_info)
 
-      puts "#{Time.now - @start_time},#{@execution_number += 1},#{line_number},#{fingerprint},#{@all_stats[fingerprint][:count]}," + csv_values.join(',')
-      true
+      puts "#{Time.now - @start_time},#{@execution_number += 1},#{line_number},#{fingerprint}," +
+           "#{@all_stats[fingerprint][:count]}," + csv_values.join(',')
 
     rescue StandardError => e
       raise unless e.message !=~ /ERROR:  missing FROM-clause entry/
-      false
     end
   end
 
@@ -79,7 +81,9 @@ class JsonQueryReplayer
     puts '# TOTAL_COST : show the top 100 queries'
     puts 'fingerprint,statement,count,avg_cost,avg_time,avg_shared_hit_blocks,avg_shared_read_blocks'
     @all_stats.sort_by { |k, v| v[:total_cost] }.reverse.first(100).each do |fingerprint, query_stats|
-      puts "#{fingerprint},#{query_stats[:statement][0..150]},#{query_stats[:count]},#{query_stats[:total_cost]},#{query_stats[:total_time]},#{query_stats[:total_shared_hit_blocks]},#{query_stats[:total_shared_read_blocks]}"
+      puts "#{fingerprint},#{query_stats[:statement][0..150]},#{query_stats[:count]}," +
+           "#{query_stats[:total_cost]},#{query_stats[:total_time]}," +
+           "#{query_stats[:total_shared_hit_blocks]},#{query_stats[:total_shared_read_blocks]}"
     end
   end
 
@@ -88,7 +92,9 @@ class JsonQueryReplayer
     puts '# COUNT : show the top 100 queries'
     puts 'fingerprint,statement,count,avg_cost,avg_time,avg_shared_hit_blocks,avg_shared_read_blocks'
     @all_stats.sort_by { |k, v| v[:count] }.reverse.first(100).each do |fingerprint, query_stats|
-      puts "#{fingerprint},#{query_stats[:statement][0..150]},#{query_stats[:count]},#{query_stats[:total_cost]},#{query_stats[:total_time]},#{query_stats[:total_shared_hit_blocks]},#{query_stats[:total_shared_read_blocks]}"
+      puts "#{fingerprint},#{query_stats[:statement][0..150]},#{query_stats[:count]}," +
+           "#{query_stats[:total_cost]},#{query_stats[:total_time]}," +
+           "#{query_stats[:total_shared_hit_blocks]},#{query_stats[:total_shared_read_blocks]}"
     end
   end
 
@@ -102,7 +108,6 @@ class JsonQueryReplayer
 
       json_in_progress = handle_json_log(log, json_in_progress) do |json_object|
         query = json_object.dig('Query Text')
-        next unless select_query?(query)
         yield(line_number, query) if block_given?
       end
     end
@@ -166,7 +171,8 @@ def get_options
   options = OpenStruct.new
 
   opt_parser = OptionParser.new do |opts|
-    opts.banner = "Usage: log_query_replayer.rb --logfile LOGFILE [--skiplines NUMBER] --pghost HOST --pgport PORT --pgdatabase DATABASE --pguser USER"
+    opts.banner = "Usage: log_query_replayer.rb --logfile LOGFILE [--skiplines NUMBER] --pghost HOST --pgport PORT " +
+                  "--pgdatabase DATABASE --pguser USER"
 
     opts.separator ""
     opts.separator "Specific options:"
