@@ -1,11 +1,16 @@
 # PG Log Query Replayer
 
 This tool replays SELECT queries that have been logged by a PostgreSQL logging system instance on a specific PG instance.
+It supports two PG log file formats
 
 ## Run the tool
 
 ```bash
 ruby log_query_replayer.rb [mandatory parameters] [options]
+```
+or 
+```bash
+ruby json_query_replayer.rb [mandatory parameters] [options]
 ```
 
 Mandatory parameters
@@ -53,7 +58,62 @@ elapsed_in_secs,execution_number,line_number,fingerprint,count,cost,avg_cost,tim
 3.027672,14,130,232416985003ca0b,3,0.015,0.027,8.44,8.44,4.0,5.0,0.0,0.0
 ```
 
-## Example
+## Example with JSON LOG format (read by the json_query_replayer)
+
+In the following PG json log file (all private information have been deleted but its structure remains the same)
+The replay will execute the SELECT queries found on lines: 26 and 38
+
+```
+023-04-25 00:00:17 UTC:192.168.0.10(43274):[unknown]@[unknown]:[31209]:LOG:  connection received: ...
+2023-04-25 00:00:20 UTC:192.168.0.10(51506):monitoring@db:[642]:STATEMENT:  SELECT buffers_sent_last_minute*8/60 AS warm_rate_kbps,
+	100*(1.0-buffers_sent_last_scan/buffers_found_last_scan) AS warm_percent
+	FROM aurora_ccm_status();
+
+2023-04-25 00:00:21 UTC:192.168.0.10(44966):role@db:[31198]:LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp31198.0", size 63268165
+2023-04-25 00:00:21 UTC:192.168.0.10(44966):role@db:[31198]:STATEMENT:  refresh materialized view concurrently instant_messaging_searchable_profiles_v7
+2023-04-25 00:00:21 UTC:192.168.0.10(58088):role@db:[31195]:LOG:  duration: 5098.147 ms  plan:
+	{
+	  "Query Text": "refresh materialized view concurrently ...",
+	  "Plan": {
+	    "Node Type": "Unique",
+	    "Parallel Aware": false,
+	    ...
+	  }
+	}
+2023-04-25 00:00:21 UTC:192.168.0.10(44966):role@db:[31198]:LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp31198.4", size 11943540
+2023-04-25 00:00:23 UTC:192.168.0.10(51506):monitoring@db:[642]:STATEMENT:  SELECT buffers_sent_last_minute*8/60 AS warm_rate_kbps,
+	100*(1.0-buffers_sent_last_scan/buffers_found_last_scan) AS warm_percent
+	FROM aurora_ccm_status();
+
+2023-04-25 00:00:24 UTC:192.168.0.10(44966):role@db:[31198]:LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp31198.5", size 11915508
+2023-04-25 00:00:24 UTC:192.168.0.10(44966):role@db:[31198]:STATEMENT:  refresh materialized view concurrently instant_messaging_searchable_profiles_v7 
+2023-04-25 00:00:25 UTC:192.168.0.10(58986):role@db:[31218]:LOG:  duration: 6356.041 ms  plan:
+	{
+	  "Query Text": "SELECT ...",
+	  "Plan": {
+	    "Node Type": "Aggregate",
+	    "Strategy": "Hashed",
+	    "Partial Mode": "Simple",
+	    "Parallel Aware": false,
+		...
+	  }
+	}
+2023-04-25 00:00:29 UTC:192.168.0.10(34694):role@db:[31205]:LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp31205.0", size 29627352
+2023-04-25 00:00:29 UTC:192.168.0.10(34694):role@db:[31205]:LOG:  duration: 5695.872 ms  plan:
+	{
+	  "Query Text": "SELECT ...",
+	  "Plan": {
+	    "Node Type": "Nested Loop",
+	    "Parallel Aware": false,
+	    "Join Type": "Left",
+	    "Startup Cost": 100245.80,
+		...
+	  }
+	}
+2023-04-25 00:00:36 UTC:192.168.0.10(44966):role@db:[31198]:LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp31198.8", size 34584116
+```
+
+## Example with simple LOG format (read by log_query_replayer)
 
 In the following PG log file (all private information have been deleted but its structure remains the same)
 The replay will execute the query found on lines: 1, 4, 12, 15, 28, 31 and 36. Note that the query on line #28 expands to line #30.
