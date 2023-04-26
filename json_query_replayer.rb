@@ -40,7 +40,7 @@ class JsonQueryReplayer
   end
 
   def handle_query(line_number, query)
-    return unless select_query?(query)
+    return unless non_modifying_query?(query)
 
     begin
       exec_info = execute_query_with_plan(query)
@@ -77,24 +77,21 @@ class JsonQueryReplayer
   end
 
   def display_top_100_queries_by_total_cost
-    puts ''
-    puts '# TOTAL_COST : show the top 100 queries'
-    puts 'fingerprint,statement,count,avg_cost,avg_time,avg_shared_hit_blocks,avg_shared_read_blocks'
-    @all_stats.sort_by { |k, v| v[:total_cost] }.reverse.first(100).each do |fingerprint, query_stats|
-      puts "#{fingerprint},#{query_stats[:statement][0..150]},#{query_stats[:count]}," +
-           "#{query_stats[:total_cost]},#{query_stats[:total_time]}," +
-           "#{query_stats[:total_shared_hit_blocks]},#{query_stats[:total_shared_read_blocks]}"
-    end
+    display_top_100_queries_sorted_by(:total_cost)
   end
 
   def display_top_100_queries_by_count
+    display_top_100_queries_sorted_by(:count)
+  end
+
+  def display_top_100_queries_sorted_by(symbol)
     puts ''
-    puts '# COUNT : show the top 100 queries'
+    puts "# #{symbol.to_s.upcase} : show the top 100 queries"
     puts 'fingerprint,statement,count,avg_cost,avg_time,avg_shared_hit_blocks,avg_shared_read_blocks'
-    @all_stats.sort_by { |k, v| v[:count] }.reverse.first(100).each do |fingerprint, query_stats|
-      puts "#{fingerprint},#{query_stats[:statement][0..150]},#{query_stats[:count]}," +
-           "#{query_stats[:total_cost]},#{query_stats[:total_time]}," +
-           "#{query_stats[:total_shared_hit_blocks]},#{query_stats[:total_shared_read_blocks]}"
+    @all_stats.sort_by { |k, v| v[symbol] }.reverse.first(100).each do |fingerprint, query_stats|
+      puts [ fingerprint, query_stats[:statement][0..150], query_stats[:count],
+             query_stats[:total_cost], query_stats[:total_time],
+             query_stats[:total_shared_hit_blocks], query_stats[:total_shared_read_blocks] ].join(',')
     end
   end
 
@@ -136,8 +133,8 @@ class JsonQueryReplayer
     true
   end
 
-  def select_query?(query)
-    query.match?(/^SELECT/)
+  def non_modifying_query?(query)
+    query.match(/(INSERT\sINTO\s|UPDATE\s.*\sSET\s|DELETE\sFROM\s)/).nil?
   end
 
   def connection
