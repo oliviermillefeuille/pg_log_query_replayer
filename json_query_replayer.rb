@@ -39,6 +39,42 @@ class JsonQueryReplayer
     ) { |line_number, query| handle_query(line_number, query) }
   end
 
+  def parse_select_statements_from_pg_log(log_file)
+    line_number = 0
+    json_in_progress = nil
+
+    File.foreach(log_file) do |log|
+      line_number += 1
+      next unless should_process_line?(line_number)
+
+      json_in_progress =
+        handle_json_log(log, json_in_progress) do |json_object|
+          query = json_object.dig("Query Text")
+          yield(line_number, query) if block_given?
+        end
+    end
+  end
+
+  def should_process_line?(line_number)
+    return false if @options.skip_lines && line_number <= @options.skip_lines
+    return false if @options.max_lines && line_number > @options.max_lines
+    true
+  end
+
+  def handle_json_log(log, json_in_progress)
+    json_in_progress += log if json_in_progress
+
+    if log.match?(/	}/)
+      json_object = JSON.parse(json_in_progress)
+      yield(json_object) if block_given?
+      json_in_progress = nil
+    elsif log.match?(/	{/)
+      json_in_progress = log
+    end
+
+    json_in_progress
+  end
+
   def handle_query(line_number, query)
     # unless contains_statements_to_exclude?(query) !!!
     #   puts "SKIPPED " + query[0..100]
@@ -63,9 +99,50 @@ class JsonQueryReplayer
     end
   end
 
+  def contains_statements_to_exclude?(query)
+    query.match(
+      /(INSERT\sINTO\s|CREATE\sTEMP\sTABLE\s|REFRESH\sMATERIALIZED)/i
+    ).nil?
+  end
+
   def number_executions_reached_limit?(fingerprint)
     @options.max_executions_per_query && @all_stats[fingerprint] &&
       @all_stats[fingerprint][:count] >= @options.max_executions_per_query
+  end
+
+  def execute_query_with_plan(query, nb_runs: 1)
+    # warmup the cache
+    (nb_runs - 1).times { connection.exec(query) }
+
+    json_plan =
+      connection
+        .exec("EXPLAIN (FORMAT JSON, ANALYZE, BUFFERS, VERBOSE) #{query}")
+        .first
+        .first[
+        1
+      ]
+    json_plan_object = JSON.parse(json_plan).first["Plan"]
+
+    exec_info = {}
+    EXPLAIN_PLAN_FIELDS_TO_EXTRACT.each do |label, symbol|
+      value = json_plan_object.dig(label).to_f
+      exec_info[symbol.to_sym] = value
+    end
+    exec_info
+  end
+
+  def connection
+    @connection ||=
+      begin
+        PG.connect(
+          host: @options.pg_host,
+          port: @options.pg_port,
+          dbname: @options.pg_database,
+          user: @options.pg_user,
+          password: @options.pg_password,
+          connect_timeout: 2
+        )
+      end
   end
 
   def update_stats(query, fingerprint, exec_info)
@@ -121,83 +198,6 @@ class JsonQueryReplayer
                query_stats[:total_shared_read_blocks]
              ].join(",")
       end
-  end
-
-  def parse_select_statements_from_pg_log(log_file)
-    line_number = 0
-    json_in_progress = nil
-
-    File.foreach(log_file) do |log|
-      line_number += 1
-      next unless should_process_line?(line_number)
-
-      json_in_progress =
-        handle_json_log(log, json_in_progress) do |json_object|
-          query = json_object.dig("Query Text")
-          yield(line_number, query) if block_given?
-        end
-    end
-  end
-
-  def handle_json_log(log, json_in_progress)
-    json_in_progress += log if json_in_progress
-
-    if log.match?(/	}/)
-      json_object = JSON.parse(json_in_progress)
-      yield(json_object) if block_given?
-      json_in_progress = nil
-    elsif log.match?(/	{/)
-      json_in_progress = log
-    end
-
-    json_in_progress
-  end
-
-  def should_process_line?(line_number)
-    return false if @options.skip_lines && line_number <= @options.skip_lines
-    return false if @options.max_lines && line_number > @options.max_lines
-    true
-  end
-
-  def contains_statements_to_exclude?(query)
-    query.match(
-      /(INSERT\sINTO\s|CREATE\sTEMP\sTABLE\s|REFRESH\sMATERIALIZED)/i
-    ).nil?
-  end
-
-  def connection
-    @connection ||=
-      begin
-        PG.connect(
-          host: @options.pg_host,
-          port: @options.pg_port,
-          dbname: @options.pg_database,
-          user: @options.pg_user,
-          password: @options.pg_password,
-          connect_timeout: 2
-        )
-      end
-  end
-
-  def execute_query_with_plan(query, nb_runs: 1)
-    # warmup the cache
-    (nb_runs - 1).times { connection.exec(query) }
-
-    json_plan =
-      connection
-        .exec("EXPLAIN (FORMAT JSON, ANALYZE, BUFFERS, VERBOSE) #{query}")
-        .first
-        .first[
-        1
-      ]
-    json_plan_object = JSON.parse(json_plan).first["Plan"]
-
-    exec_info = {}
-    EXPLAIN_PLAN_FIELDS_TO_EXTRACT.each do |label, symbol|
-      value = json_plan_object.dig(label).to_f
-      exec_info[symbol.to_sym] = value
-    end
-    exec_info
   end
 end
 
