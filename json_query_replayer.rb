@@ -40,14 +40,17 @@ class JsonQueryReplayer
   end
 
   def handle_query(line_number, query)
-    unless contains_statements_to_exclude?(query)
-      puts "SKIPPED " + query[0..100]
-    end
+    # unless contains_statements_to_exclude?(query) !!!
+    #   puts "SKIPPED " + query[0..100]
+    # end
     return unless contains_statements_to_exclude?(query)
-    puts "PASSED " + query[0..100]
+    # puts "PASSED " + query[0..100] !!!
     begin
-      exec_info = execute_query_with_plan(query)
       fingerprint = PgQuery.fingerprint(query)
+      exec_info =
+        execute_query_with_plan(query) unless number_executions_reached_limit?(
+        fingerprint
+      )
 
       query_stats = update_stats(query, fingerprint, exec_info)
       csv_values = build_csv_values(query_stats, exec_info)
@@ -57,6 +60,11 @@ class JsonQueryReplayer
     rescue StandardError => e
       raise unless e.message != ~/ERROR:  missing FROM-clause entry/
     end
+  end
+
+  def number_executions_reached_limit?(fingerprint)
+    @options.max_executions_per_query && @all_stats[fingerprint] &&
+      @all_stats[fingerprint][:count] >= @options.max_executions_per_query
   end
 
   def update_stats(query, fingerprint, exec_info)
@@ -227,6 +235,12 @@ def get_options
       end
       opts.on("-m", "--maxlines NUMBER") do |max_lines|
         options.max_lines = max_lines.to_i
+      end
+      opts.on(
+        "-c",
+        "--maxnumberexecutionsperquery NUMBER"
+      ) do |max_executions_per_query|
+        options.max_executions_per_query = max_executions_per_query.to_i
       end
 
       opts.separator ""
