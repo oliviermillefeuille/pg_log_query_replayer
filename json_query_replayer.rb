@@ -40,8 +40,11 @@ class JsonQueryReplayer
   end
 
   def handle_query(line_number, query)
-    return unless non_modifying_query?(query)
-
+    unless contains_statements_to_exclude?(query)
+      puts "SKIPPED " + query[0..100]
+    end
+    return unless contains_statements_to_exclude?(query)
+    puts "PASSED " + query[0..100]
     begin
       exec_info = execute_query_with_plan(query)
       fingerprint = PgQuery.fingerprint(query)
@@ -147,9 +150,9 @@ class JsonQueryReplayer
     true
   end
 
-  def non_modifying_query?(query)
+  def contains_statements_to_exclude?(query)
     query.match(
-      /(INSERT\sINTO\s|UPDATE\s.*\sSET\s|DELETE\sFROM\s|CREATE\sTEMP\sTABLE\s)/
+      /(INSERT\sINTO\s|CREATE\sTEMP\sTABLE\s|REFRESH\sMATERIALIZED)/i
     ).nil?
   end
 
