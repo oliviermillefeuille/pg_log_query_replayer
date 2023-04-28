@@ -48,9 +48,10 @@ class JsonQueryReplayer
     begin
       fingerprint = PgQuery.fingerprint(query)
       exec_info =
-        execute_query_with_plan(query) unless number_executions_reached_limit?(
-        fingerprint
-      )
+        execute_query_with_plan(
+          query,
+          nb_runs: 2
+        ) unless number_executions_reached_limit?(fingerprint)
 
       query_stats = update_stats(query, fingerprint, exec_info)
       csv_values = build_csv_values(query_stats, exec_info)
@@ -178,7 +179,10 @@ class JsonQueryReplayer
       end
   end
 
-  def execute_query_with_plan(query)
+  def execute_query_with_plan(query, nb_runs: 1)
+    # warmup the cache
+    (nb_runs - 1).times { connection.exec(query) }
+
     json_plan =
       connection
         .exec("EXPLAIN (FORMAT JSON, ANALYZE, BUFFERS, VERBOSE) #{query}")
