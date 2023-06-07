@@ -21,14 +21,6 @@ class JsonQueryReplayer
     @start_time = Time.now
   end
 
-  def main
-    replay_queries
-    display_top_100_queries_by_total_cost
-    display_top_100_queries_by_count
-  end
-
-  private
-
   def replay_queries
     puts "# REPLAYING JSON FILE #{(@options.skip_lines ? "(skipping #{@options.skip_lines} lines)" : "")}"
     puts "elapsed_in_secs,execution_number,line_number,fingerprint,count," +
@@ -38,6 +30,8 @@ class JsonQueryReplayer
       @options.log_file
     ) { |line_number, query| handle_query(line_number, query) }
   end
+
+  private
 
   def parse_select_statements_from_pg_log(log_file)
     line_number = 0
@@ -64,7 +58,7 @@ class JsonQueryReplayer
   def handle_json_log(log, json_in_progress)
     json_in_progress += log if json_in_progress
 
-    if log.match?(/	}/)
+    if log.match?(/	}|^\d{4}-\d{2}-\d{2}T\d{2}/)
       json_object = JSON.parse(json_in_progress)
       yield(json_object) if block_given?
       json_in_progress = nil
@@ -76,24 +70,26 @@ class JsonQueryReplayer
   end
 
   def handle_query(line_number, query)
-    # unless contains_statements_to_exclude?(query) !!!
-    #   puts "SKIPPED " + query[0..100]
-    # end
     return unless contains_statements_to_exclude?(query)
-    # puts "PASSED " + query[0..100] !!!
+
     begin
       fingerprint = PgQuery.fingerprint(query)
-      exec_info =
-        execute_query_with_plan(
-          query,
-          nb_runs: 2
-        ) unless number_executions_reached_limit?(fingerprint)
 
-      query_stats = update_stats(query, fingerprint, exec_info)
-      csv_values = build_csv_values(query_stats, exec_info)
+      extra_fields = []
+      if @options.onlycount
+        @all_stats[fingerprint] ||= {count: 0}
+        @all_stats[fingerprint][:count] += 1
+      else
+        unless number_executions_reached_limit?(fingerprint)
+          exec_info = execute_query_with_plan(query)
+          query_stats = update_stats(query, fingerprint, exec_info)
+          extra_fields = build_csv_values(query_stats, exec_info)
+        end
+      end
 
       puts "#{Time.now - @start_time},#{@execution_number += 1},#{line_number},#{fingerprint}," +
-             "#{@all_stats[fingerprint][:count]}," + csv_values.join(",")
+              "#{@all_stats[fingerprint][:count]}" + extra_fields.join(",")
+
     rescue StandardError => e
       raise unless e.message != ~/ERROR:  missing FROM-clause entry/
     end
@@ -101,7 +97,7 @@ class JsonQueryReplayer
 
   def contains_statements_to_exclude?(query)
     query.match(
-      /(INSERT\sINTO\s|CREATE\sTEMP\sTABLE\s|REFRESH\sMATERIALIZED)/i
+      /(  \sINTO\s|CREATE\sTEMP\sTABLE\s|REFRESH\sMATERIALIZED)/i
     ).nil?
   end
 
@@ -110,9 +106,9 @@ class JsonQueryReplayer
       @all_stats[fingerprint][:count] >= @options.max_executions_per_query
   end
 
-  def execute_query_with_plan(query, nb_runs: 1)
+  def execute_query_with_plan(query)
     # warmup the cache
-    (nb_runs - 1).times { connection.exec(query) }
+    connection.exec(query)
 
     json_plan =
       connection
@@ -170,35 +166,6 @@ class JsonQueryReplayer
     end
     csv_values
   end
-
-  def display_top_100_queries_by_total_cost
-    display_top_100_queries_sorted_by(:total_cost)
-  end
-
-  def display_top_100_queries_by_count
-    display_top_100_queries_sorted_by(:count)
-  end
-
-  def display_top_100_queries_sorted_by(symbol)
-    puts ""
-    puts "# #{symbol.to_s.upcase} : show the top 100 queries"
-    puts "fingerprint,statement,count,avg_cost,avg_time,avg_shared_hit_blocks,avg_shared_read_blocks"
-    @all_stats
-      .sort_by { |k, v| v[symbol] }
-      .reverse
-      .first(100)
-      .each do |fingerprint, query_stats|
-        puts [
-               fingerprint,
-               query_stats[:statement][0..150],
-               query_stats[:count],
-               query_stats[:total_cost],
-               query_stats[:total_time],
-               query_stats[:total_shared_hit_blocks],
-               query_stats[:total_shared_read_blocks]
-             ].join(",")
-      end
-  end
 end
 
 def get_options
@@ -234,7 +201,10 @@ def get_options
         "--pgpassword PGPASSWORD",
         "Require the PGPASSWORD"
       ) { |pg_password| options.pg_password = pg_password }
-      opts.on("-s", "--skiplines NUMBER") do |skip_lines|
+      opts.on("-m", "--onlycount") do
+        options.onlycount = true
+      end
+      opts.on("-s", "--skiplines") do |skip_lines|
         options.skip_lines = skip_lines.to_i
       end
       opts.on("-m", "--maxlines NUMBER") do |max_lines|
@@ -272,4 +242,4 @@ def get_options
 end
 
 log_query_replayer = JsonQueryReplayer.new(get_options)
-log_query_replayer.main
+log_query_replayer.replay_queries
