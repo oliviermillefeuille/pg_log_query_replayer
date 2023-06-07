@@ -39,10 +39,11 @@ class JsonQueryReplayer
 
     File.foreach(log_file) do |log|
       line_number += 1
+      # puts "log line: " + line_number.to_s + " " + log[0..150]
       next unless should_process_line?(line_number)
 
       json_in_progress =
-        handle_json_log(log, json_in_progress) do |json_object|
+        handle_json_log(log, json_in_progress, line_number) do |json_object|
           query = json_object.dig("Query Text")
           yield(line_number, query) if block_given?
         end
@@ -55,14 +56,21 @@ class JsonQueryReplayer
     true
   end
 
-  def handle_json_log(log, json_in_progress)
+  def handle_json_log(log, json_in_progress, line_number)
     json_in_progress += log if json_in_progress
+    # puts "json_in_progress: " + line_number.to_s + " " + json_in_progress.count("\n").to_s if json_in_progress
 
-    if log.match?(/	}|^\d{4}-\d{2}-\d{2}T\d{2}/)
-      json_object = JSON.parse(json_in_progress)
-      yield(json_object) if block_given?
-      json_in_progress = nil
+    if log.match?(/^	}|^\d{4}-\d{2}-\d{2}T\d{2}}/)
+        # puts "parsing json object"
+        begin
+          json_object = JSON.parse(json_in_progress)
+          yield(json_object) if block_given?
+        rescue
+          # puts "cancel, invalid object"
+        end
+        json_in_progress = nil
     elsif log.match?(/	{/)
+      # puts "starting new json object"
       json_in_progress = log
     end
 
@@ -80,6 +88,7 @@ class JsonQueryReplayer
         @all_stats[fingerprint] ||= {count: 0}
         @all_stats[fingerprint][:count] += 1
       else
+        # puts "query: " + query[0..150]
         unless number_executions_reached_limit?(fingerprint)
           exec_info = execute_query_with_plan(query)
           query_stats = update_stats(query, fingerprint, exec_info)
@@ -97,7 +106,7 @@ class JsonQueryReplayer
 
   def contains_statements_to_exclude?(query)
     query.match(
-      /(  \sINTO\s|CREATE\sTEMP\sTABLE\s|REFRESH\sMATERIALIZED)/i
+      /(\sINTO\s|CREATE\sTEMP\sTABLE\s|REFRESH\sMATERIALIZED)/i
     ).nil?
   end
 
