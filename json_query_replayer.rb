@@ -67,6 +67,7 @@ class JsonQueryReplayer
           yield(json_object) if block_given?
         rescue
           # puts "cancel, invalid object"
+          puts "#{Time.now - @start_time},#{@execution_number += 1},#{line_number},ERROR"
         end
         json_in_progress = nil
     elsif log.match?(/	{/)
